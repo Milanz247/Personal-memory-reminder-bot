@@ -26,29 +26,40 @@ func (c *StartCommand) Description() string {
 
 // Execute executes the start command
 func (c *StartCommand) Execute(ctx context.Context, bot BotAPI, message *tgbotapi.Message) error {
-	welcomeText := `🧠 *Welcome to Memory Storage Bot!*
+	imagePath := "assets/images/welcome_banner.png"
 
-This bot helps you store and retrieve memories using AI-powered search.
+	// Short, decorated caption with founder info
+	caption := `🧠 *Memory Storage Bot*
 
-*Features:*
-• Fast full-text search with relevance ranking
-• Automatic spaced repetition for better retention
-• Tag-based organization
-• Context-aware storage
+Your intelligent personal memory assistant powered by AI.
 
-*Quick Start:*
-Use the menu button (☰) at the bottom to access all commands:
-• /save - Save a new memory
-• /search - Search your memories
-• /recent - View recent memories
-• /stats - View statistics
-• /help - Get detailed help
+✨ *Features*
+• Smart search with FTS5
+• Spaced repetition reminders
+• Encrypted storage
+• Tag organization
 
-Or just type any text to save it as a memory!`
+🚀 *Quick Start*
+/save - Save memories
+/search - Find anything
+/help - Get help
 
-	msg := tgbotapi.NewMessage(message.Chat.ID, welcomeText)
+━━━━━━━━━━━━━━━
+👨‍💻 *Created by:* Milan Madusanka
+🔗 [GitHub](https://github.com/Milanz247)
+━━━━━━━━━━━━━━━`
+
+	if fileExists(imagePath) {
+		photo := tgbotapi.NewPhoto(message.Chat.ID, tgbotapi.FilePath(imagePath))
+		photo.Caption = caption
+		photo.ParseMode = "Markdown"
+		_, err := bot.Send(photo)
+		return err
+	}
+
+	// Fallback if image not found
+	msg := tgbotapi.NewMessage(message.Chat.ID, caption)
 	msg.ParseMode = "Markdown"
-
 	_, err := bot.Send(msg)
 	return err
 }

@@ -61,12 +61,14 @@ func (c *SaveCommand) Execute(ctx context.Context, bot BotAPI, message *tgbotapi
 		return err
 	}
 
-	response := "✅ Memory saved!"
+	// Simple success message
+	response := "✅ *Memory saved!*"
 	if len(output.Tags) > 0 {
-		response += fmt.Sprintf(" Tags: %s", strings.Join(output.Tags, ", "))
+		response += fmt.Sprintf("\n🏷️ Tags: `%s`", strings.Join(output.Tags, "` `"))
 	}
 
 	msg := tgbotapi.NewMessage(message.Chat.ID, response)
+	msg.ParseMode = "Markdown"
 	_, err = bot.Send(msg)
 	return err
 }

@@ -71,8 +71,8 @@ func (c *SearchCommand) Execute(ctx context.Context, bot BotAPI, message *tgbota
 		return err
 	}
 
-	// Format results
-	response := fmt.Sprintf("🔍 *Search Results* – %s\n\n━━━━━━━━━━━━━━━\n", keyword)
+	// Format results (no image, just text)
+	response := fmt.Sprintf("🔍 *Search:* `%s`\n*Found:* %d\n\n━━━━━━━━━━━━━━━\n", keyword, len(output.Memories))
 
 	numEmoji := []string{"1️⃣", "2️⃣", "3️⃣", "4️⃣", "5️⃣"}
 	for i, mem := range output.Memories {
