@@ -203,21 +203,46 @@ aaaaaaa/
 
 ## Development 🛠️
 
-### Running Tests
+### Building
 ```bash
-go test ./...
+# Simple build
+go build -tags "fts5" -o memory-bot
+
+# Or use the build script
+./build.sh
 ```
 
-### Building for Production
+### Running
 ```bash
-CGO_ENABLED=1 go build -o memory-bot -ldflags="-s -w" .
+# Direct run
+go run -tags "fts5" main.go
+
+# Or run the built binary
+./memory-bot
+
+# Or use the run script
+./run.sh
 ```
 
-### Docker Support (Optional)
-```bash
-docker build -t memory-bot .
-docker run -d --env-file .env memory-bot
-```
+### Code Structure
+- `main.go` - Entry point, initializes everything
+- `config/config.go` - Loads environment variables
+- `database/database.go` - Database setup with FTS5
+- `database/queries.go` - All SQL queries
+- `bot/bot.go` - Telegram bot commands and handlers
+- `bot/spaced_repetition.go` - Review reminder system
+
+### Making Changes
+1. Edit the relevant files
+2. Build: `./build.sh`
+3. Test locally: `./run.sh`
+4. Commit: `git add . && git commit -m "your message"`
+5. Push: `git push origin main`
+
+### Adding New Commands
+1. Add handler function in `bot/bot.go`
+2. Register command in `Start()` function
+3. Rebuild and test
 
 ## Neuroscience Principles Applied 🧬
 
