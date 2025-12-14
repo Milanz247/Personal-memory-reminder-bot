@@ -11,7 +11,8 @@ import (
 type Config struct {
 	TelegramBotToken string
 	DBPath           string
-	ReviewIntervals  []int // in days
+	ReviewIntervals  []int  // in days
+	EncryptionKey    string // Optional: for encrypting sensitive memory data
 }
 
 // LoadConfig loads configuration from environment variables
@@ -36,6 +37,7 @@ func LoadConfig() (*Config, error) {
 		TelegramBotToken: token,
 		DBPath:           dbPath,
 		ReviewIntervals:  intervals,
+		EncryptionKey:    getEnv("ENCRYPTION_KEY", ""),
 	}, nil
 }
 

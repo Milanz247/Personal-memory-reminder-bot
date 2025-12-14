@@ -1,23 +1,35 @@
-# Binaries
+# Ignore environment variables
+.env
+
+# Ignore database files
+*.db
+*.db-shm
+*.db-wal
+*.db-journal
+*.db.backup-*
+
+# Ignore binary
+memory-bot
+memory-bot-new
+
+# Ignore Go build artifacts
 *.exe
 *.exe~
 *.dll
 *.so
 *.dylib
-memory-bot
 
-# Test binary
+# Test binary, built with `go test -c`
 *.test
 
 # Output of the go coverage tool
 *.out
 
-# Database files
-*.db
-*.db-journal
+# Dependency directories
+vendor/
 
-# Environment variables
-.env
+# Go workspace file
+go.work
 
 # IDE
 .vscode/
@@ -29,3 +41,7 @@ memory-bot
 # OS
 .DS_Store
 Thumbs.db
+
+# Logs
+*.log
+bot.log

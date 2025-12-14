@@ -1,0 +1,426 @@
+package sqlite
+
+import (
+	"context"
+	"database/sql"
+	"fmt"
+	"log"
+	"strings"
+
+	"memory-bot/internal/domain/entity"
+	"memory-bot/internal/domain/repository"
+	"memory-bot/pkg/encryption"
+)
+
+// MemoryRepository is the SQLite implementation of repository.MemoryRepository
+type MemoryRepository struct {
+	conn      *Connection
+	encryptor *encryption.Encryptor
+}
+
+// NewMemoryRepository creates a new SQLite memory repository
+func NewMemoryRepository(conn *Connection, encryptor *encryption.Encryptor) *MemoryRepository {
+	return &MemoryRepository{
+		conn:      conn,
+		encryptor: encryptor,
+	}
+}
+
+// Save stores a new memory in the database
+func (r *MemoryRepository) Save(ctx context.Context, memory *entity.Memory) (int64, error) {
+	if err := memory.Validate(); err != nil {
+		return 0, err
+	}
+
+	// Encrypt content before storing
+	encryptedContent, err := encryption.EncryptIfEnabled(r.encryptor, memory.Content)
+	if err != nil {
+		return 0, fmt.Errorf("failed to encrypt content: %w", err)
+	}
+
+	stmt, err := r.conn.DB.PrepareContext(ctx, `
+		INSERT INTO memories (user_id, chat_id, text_content, search_content, tags, created_at)
+		VALUES (?, ?, ?, ?, ?, ?)
+	`)
+	if err != nil {
+		return 0, fmt.Errorf("failed to prepare statement: %w", err)
+	}
+	defer stmt.Close()
+
+	result, err := stmt.ExecContext(ctx,
+		memory.UserID,
+		memory.ChatID,
+		encryptedContent, // Encrypted version
+		memory.Content,   // Plain text for FTS5 searching
+		memory.GetTagsString(),
+		memory.CreatedAt,
+	)
+	if err != nil {
+		return 0, fmt.Errorf("failed to save memory: %w", err)
+	}
+
+	id, err := result.LastInsertId()
+	if err != nil {
+		return 0, fmt.Errorf("failed to get last insert ID: %w", err)
+	}
+
+	log.Printf("Memory saved: ID=%d, UserID=%d", id, memory.UserID)
+	return id, nil
+}
+
+// FindByID retrieves a memory by its ID
+func (r *MemoryRepository) FindByID(ctx context.Context, id int) (*entity.Memory, error) {
+	query := `
+		SELECT id, user_id, chat_id, text_content, tags, 
+		       created_at, last_reviewed, review_count
+		FROM memories
+		WHERE id = ?
+	`
+
+	var m entity.Memory
+	var tags string
+	var lastReviewed sql.NullTime
+
+	err := r.conn.DB.QueryRowContext(ctx, query, id).Scan(
+		&m.ID,
+		&m.UserID,
+		&m.ChatID,
+		&m.Content,
+		&tags,
+		&m.CreatedAt,
+		&lastReviewed,
+		&m.ReviewCount,
+	)
+
+	if err == sql.ErrNoRows {
+		return nil, entity.ErrMemoryNotFound
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to find memory: %w", err)
+	}
+
+	m.Tags = strings.Fields(tags)
+	if lastReviewed.Valid {
+		m.LastReviewed = &lastReviewed.Time
+	}
+
+	// Decrypt content after reading
+	decryptedContent, err := encryption.DecryptIfEnabled(r.encryptor, m.Content)
+	if err != nil {
+		return nil, fmt.Errorf("failed to decrypt content: %w", err)
+	}
+	m.Content = decryptedContent
+
+	return &m, nil
+}
+
+// Search performs FTS5 search with ranking
+func (r *MemoryRepository) Search(ctx context.Context, userID int64, query string, opts repository.SearchOptions) ([]*entity.Memory, error) {
+	searchTerm := prepareFTS5SearchTerm(query)
+
+	sql := `
+		SELECT 
+			m.id,
+			m.user_id,
+			m.chat_id,
+			m.text_content,
+			m.tags,
+			m.created_at,
+			m.last_reviewed,
+			m.review_count,
+			memories_fts.rank as rank
+		FROM 
+			memories AS m
+		JOIN 
+			memories_fts ON m.id = memories_fts.rowid
+		WHERE 
+			m.user_id = ? AND 
+			memories_fts MATCH ?
+		ORDER BY 
+			rank
+		LIMIT ? OFFSET ?
+	`
+
+	rows, err := r.conn.DB.QueryContext(ctx, sql, userID, searchTerm, opts.Limit, opts.Offset)
+	if err != nil {
+		return nil, fmt.Errorf("failed to search memories: %w", err)
+	}
+	defer rows.Close()
+
+	memories := []*entity.Memory{}
+	for rows.Next() {
+		m, err := scanMemoryRow(rows)
+		if err != nil {
+			return nil, err
+		}
+
+		// Decrypt content after reading
+		decryptedContent, err := encryption.DecryptIfEnabled(r.encryptor, m.Content)
+		if err != nil {
+			return nil, fmt.Errorf("failed to decrypt content: %w", err)
+		}
+		m.Content = decryptedContent
+
+		memories = append(memories, m)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating rows: %w", err)
+	}
+
+	log.Printf("Found %d memories for user %d with keyword '%s'", len(memories), userID, query)
+	return memories, nil
+}
+
+// GetRecent retrieves the most recent memories for a user
+func (r *MemoryRepository) GetRecent(ctx context.Context, userID int64, limit int) ([]*entity.Memory, error) {
+	query := `
+		SELECT 
+			id, user_id, chat_id, text_content, tags, 
+			created_at, last_reviewed, review_count
+		FROM memories
+		WHERE user_id = ?
+		ORDER BY created_at DESC
+		LIMIT ?
+	`
+
+	rows, err := r.conn.DB.QueryContext(ctx, query, userID, limit)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get recent memories: %w", err)
+	}
+	defer rows.Close()
+
+	memories, err := scanMemories(rows)
+	if err != nil {
+		return nil, err
+	}
+
+	// Decrypt content for each memory
+	for _, m := range memories {
+		decryptedContent, err := encryption.DecryptIfEnabled(r.encryptor, m.Content)
+		if err != nil {
+			return nil, fmt.Errorf("failed to decrypt content: %w", err)
+		}
+		m.Content = decryptedContent
+	}
+
+	return memories, nil
+}
+
+// GetForReview retrieves memories that need review based on intervals
+func (r *MemoryRepository) GetForReview(ctx context.Context, intervals []int) ([]*entity.Memory, error) {
+	conditions := make([]string, 0, len(intervals))
+	args := make([]interface{}, 0, len(intervals))
+
+	for _, days := range intervals {
+		conditions = append(conditions, "(julianday('now') - julianday(COALESCE(last_reviewed, created_at)) >= ?)")
+		args = append(args, days)
+	}
+
+	query := fmt.Sprintf(`
+		SELECT 
+			id, user_id, chat_id, text_content, tags,
+			created_at, last_reviewed, review_count
+		FROM memories
+		WHERE %s
+		ORDER BY COALESCE(last_reviewed, created_at) ASC
+		LIMIT 50
+	`, strings.Join(conditions, " OR "))
+
+	rows, err := r.conn.DB.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get memories for review: %w", err)
+	}
+	defer rows.Close()
+
+	memories, err := scanMemories(rows)
+	if err != nil {
+		return nil, err
+	}
+
+	// Decrypt content for each memory
+	for _, m := range memories {
+		decryptedContent, err := encryption.DecryptIfEnabled(r.encryptor, m.Content)
+		if err != nil {
+			return nil, fmt.Errorf("failed to decrypt content: %w", err)
+		}
+		m.Content = decryptedContent
+	}
+
+	return memories, nil
+}
+
+// Update updates an existing memory
+func (r *MemoryRepository) Update(ctx context.Context, memory *entity.Memory) error {
+	if err := memory.Validate(); err != nil {
+		return err
+	}
+
+	stmt, err := r.conn.DB.PrepareContext(ctx, `
+		UPDATE memories 
+		SET last_reviewed = ?, review_count = ?
+		WHERE id = ?
+	`)
+	if err != nil {
+		return fmt.Errorf("failed to prepare statement: %w", err)
+	}
+	defer stmt.Close()
+
+	_, err = stmt.ExecContext(ctx, memory.LastReviewed, memory.ReviewCount, memory.ID)
+	if err != nil {
+		return fmt.Errorf("failed to update memory: %w", err)
+	}
+
+	return nil
+}
+
+// Delete removes a memory with authorization check
+func (r *MemoryRepository) Delete(ctx context.Context, id int, userID int64) error {
+	stmt, err := r.conn.DB.PrepareContext(ctx, `
+		DELETE FROM memories 
+		WHERE id = ? AND user_id = ?
+	`)
+	if err != nil {
+		return fmt.Errorf("failed to prepare statement: %w", err)
+	}
+	defer stmt.Close()
+
+	result, err := stmt.ExecContext(ctx, id, userID)
+	if err != nil {
+		return fmt.Errorf("failed to delete memory: %w", err)
+	}
+
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to get rows affected: %w", err)
+	}
+
+	if affected == 0 {
+		return entity.ErrUnauthorized
+	}
+
+	log.Printf("Memory deleted: ID=%d, UserID=%d", id, userID)
+	return nil
+}
+
+// Count returns the total number of memories for a user
+func (r *MemoryRepository) Count(ctx context.Context, userID int64) (int, error) {
+	var count int
+	err := r.conn.DB.QueryRowContext(ctx,
+		"SELECT COUNT(*) FROM memories WHERE user_id = ?",
+		userID,
+	).Scan(&count)
+
+	if err != nil {
+		return 0, fmt.Errorf("failed to get memory count: %w", err)
+	}
+	return count, nil
+}
+
+// Helper functions
+
+// scanMemoryRow scans a single memory row with rank
+func scanMemoryRow(rows *sql.Rows) (*entity.Memory, error) {
+	var m entity.Memory
+	var tags string
+	var lastReviewed sql.NullTime
+
+	err := rows.Scan(
+		&m.ID,
+		&m.UserID,
+		&m.ChatID,
+		&m.Content,
+		&tags,
+		&m.CreatedAt,
+		&lastReviewed,
+		&m.ReviewCount,
+		&m.Rank,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to scan row: %w", err)
+	}
+
+	m.Tags = strings.Fields(tags)
+	if lastReviewed.Valid {
+		m.LastReviewed = &lastReviewed.Time
+	}
+
+	return &m, nil
+}
+
+// scanMemories scans multiple memory rows
+func scanMemories(rows *sql.Rows) ([]*entity.Memory, error) {
+	var memories []*entity.Memory
+
+	for rows.Next() {
+		var m entity.Memory
+		var tags string
+		var lastReviewed sql.NullTime
+
+		err := rows.Scan(
+			&m.ID,
+			&m.UserID,
+			&m.ChatID,
+			&m.Content,
+			&tags,
+			&m.CreatedAt,
+			&lastReviewed,
+			&m.ReviewCount,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan row: %w", err)
+		}
+
+		m.Tags = strings.Fields(tags)
+		if lastReviewed.Valid {
+			m.LastReviewed = &lastReviewed.Time
+		}
+
+		memories = append(memories, &m)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating rows: %w", err)
+	}
+
+	return memories, nil
+}
+
+// prepareFTS5SearchTerm prepares a search term for FTS5 MATCH with wildcard support
+func prepareFTS5SearchTerm(keyword string) string {
+	keyword = strings.TrimSpace(keyword)
+	if keyword == "" {
+		return keyword
+	}
+
+	// If query contains OR operator, return as-is (already prepared by strategy)
+	if strings.Contains(keyword, " OR ") {
+		return keyword
+	}
+
+	words := strings.Fields(keyword)
+	if len(words) == 0 {
+		return keyword
+	}
+
+	var ftsTerms []string
+	for _, word := range words {
+		word = strings.TrimSpace(word)
+		if word == "" {
+			continue
+		}
+
+		// Only add wildcard if not already present
+		if !strings.HasSuffix(word, "*") {
+			word = word + "*"
+		}
+
+		ftsTerms = append(ftsTerms, word)
+	}
+
+	if len(ftsTerms) > 1 {
+		return strings.Join(ftsTerms, " ")
+	}
+
+	return ftsTerms[0]
+}

@@ -1,297 +1,172 @@
-# Memory Storage Telegram Bot 🧠
+# 🧠 Personal Memory Reminder Bot
 
-A sophisticated Telegram bot for storing and retrieving memories using AI-powered full-text search with SQLite FTS5, implementing neuroscience-inspired principles for optimal memory retention.
+A Telegram bot that helps you store, search, and review your personal memories using spaced repetition techniques.
 
-## Features ✨
+## 🔒 Security Features
 
-- **Fast Full-Text Search**: Powered by SQLite FTS5 with relevance ranking
-- **Spaced Repetition**: Automatic memory review reminders based on neuroscience principles
-- **Context-Aware Storage**: Stores memories with user ID, timestamp, and tags
-- **Pagination Support**: Browse search results with inline keyboard navigation
-- **Tag Organization**: Use hashtags to organize and categorize memories
-- **Statistics**: Track your memory collection growth
+- **AES-256-GCM Encryption**: All memory content is encrypted before storage
+- **Optional Encryption**: Works with or without encryption enabled
+- **Secure Key Management**: Uses environment variables for key storage
 
-## Architecture 🏗️
+[📖 Read the Encryption Setup Guide](docs/ENCRYPTION_SETUP.md)
 
-The bot is designed following neuroscience principles:
+## ✨ Features
 
-- **Encoding**: Context-rich memory storage with automatic metadata
-- **Consolidation**: Spaced repetition system for long-term retention
-- **Retrieval**: FTS5-powered search with BM25 ranking algorithm
+- 💾 **Save Memories**: Store your thoughts, ideas, and important information
+- 🔍 **Smart Search**: Find memories using intelligent full-text search
+- 📅 **Spaced Repetition**: Automatic review reminders based on proven learning intervals
+- 🏷️ **Auto-tagging**: Automatically extracts and indexes hashtags
+- 📊 **Statistics**: Track your memory collection growth
+- 🔒 **Encryption**: Optional AES-256 encryption for sensitive data
 
-### Tech Stack
-
-- **Language**: Go 1.21+
-- **Database**: SQLite with FTS5 (Full-Text Search)
-- **Bot Framework**: go-telegram-bot-api
-- **Search Algorithm**: Okapi BM25 (built into FTS5)
-
-## Installation 🚀
+## 🚀 Quick Start
 
 ### Prerequisites
 
 - Go 1.21 or higher
+- Telegram Bot Token ([Get one from @BotFather](https://t.me/botfather))
 - SQLite3
-- A Telegram Bot Token (get from [@BotFather](https://t.me/botfather))
 
-### Setup
+### Installation
 
 1. Clone the repository:
 ```bash
-cd /home/milanmadusanka/Projects/aaaaaaa
+git clone <repository-url>
+cd Personal-memory-reminder-bot
 ```
 
-2. Install dependencies:
-```bash
-go mod download
-```
-
-3. Create `.env` file:
+2. Copy and configure environment variables:
 ```bash
 cp .env.example .env
 ```
 
-4. Edit `.env` and add your Telegram bot token:
+3. Edit `.env` and add your credentials:
 ```env
 TELEGRAM_BOT_TOKEN=your_bot_token_here
 DB_PATH=./memories.db
+ENCRYPTION_KEY=your-secret-encryption-key  # Optional but recommended
 ```
 
-5. Build and run:
-```bash
-go build -tags "fts5" -o memory-bot
-./memory-bot
-```
-
-Or run directly:
-```bash
-go run -tags "fts5" main.go
-```
-
-Or use the build script:
+4. Build and run:
 ```bash
 ./build.sh
-./memory-bot
-```
-
-## Usage 📖
-
-### Commands
-
-- `/start` - Welcome message and introduction
-- `/help` - Show all available commands
-- `/save [text]` - Save a memory (or just send text without command)
-- `/search [keyword]` - Search memories with pagination
-- `/recent` - Show your 10 most recent memories
-- `/stats` - Display memory statistics
-
-### Examples
-
-**Saving memories:**
-```
-/save Remember to buy milk tomorrow #shopping
-
-Remember to call John about the meeting #work #important
-
-Just went to an amazing concert! #music #entertainment
-```
-
-**Searching:**
-```
-/search meeting
-/search milk
-/search #work
-```
-
-**Tags:**
-Use `#` to create tags for better organization. Tags are automatically extracted and indexed for faster retrieval.
-
-## How It Works 🧠
-
-### Memory Storage (Encoding)
-
-When you save a memory, the bot stores:
-- **Content**: Your memory text
-- **Context**: User ID, chat ID, timestamp
-- **Tags**: Extracted hashtags for organization
-- **Metadata**: Review count, last reviewed date
-
-### Memory Retrieval (Fast Search)
-
-1. **FTS5 Full-Text Search**: Uses SQLite's FTS5 virtual table with Porter stemming
-2. **BM25 Ranking**: Automatically ranks results by relevance
-3. **Composite Indexing**: Fast user-based filtering
-4. **Pagination**: Navigate through results with inline keyboard buttons
-
-### Spaced Repetition (Consolidation)
-
-The bot automatically reminds you to review memories based on intervals:
-- Day 1: First review
-- Day 3: Second review
-- Day 7: Third review
-- Day 14: Fourth review
-- Day 30: Fifth review
-
-This implements the neuroscience principle of spaced repetition for better long-term memory retention.
-
-## Database Schema 📊
-
-### Main Table: `memories`
-```sql
-- id: INTEGER PRIMARY KEY
-- user_id: INTEGER (indexed)
-- chat_id: INTEGER
-- text_content: TEXT
-- tags: TEXT
-- created_at: DATETIME (indexed)
-- last_reviewed: DATETIME
-- review_count: INTEGER
-```
-
-### FTS5 Virtual Table: `memories_fts`
-```sql
-- text_content: TEXT (indexed)
-- tags: TEXT (indexed)
-```
-
-### Indexes
-- Composite index on `(user_id, created_at DESC)` for fast user queries
-
-## Best Practices Implementation 🎯
-
-### Speed Optimizations
-- ✅ FTS5 with Porter stemming and Unicode tokenization
-- ✅ Composite indexes on frequently queried columns
-- ✅ WAL mode for better concurrency
-- ✅ Prepared statements to prevent SQL injection
-
-### Relevance Ranking
-- ✅ BM25 algorithm (built into FTS5)
-- ✅ Context-based filtering (user_id)
-- ✅ Tag-based enhancement
-
-### Memory Retention
-- ✅ Automatic spaced repetition
-- ✅ Review tracking
-- ✅ Context preservation
-
-## Project Structure 📁
-
-```
-aaaaaaa/
-├── main.go                 # Entry point
-├── config/
-│   └── config.go          # Configuration management
-├── database/
-│   ├── database.go        # DB initialization and schema
-│   └── queries.go         # All database operations
-├── bot/
-│   ├── bot.go             # Bot handlers and commands
-│   └── spaced_repetition.go  # Spaced repetition system
-├── go.mod                 # Go module definition
-├── .env.example           # Example environment variables
-└── README.md             # This file
-```
-
-## Configuration ⚙️
-
-### Environment Variables
-
-- `TELEGRAM_BOT_TOKEN`: Your Telegram bot token (required)
-- `DB_PATH`: Path to SQLite database file (default: `./memories.db`)
-- `REVIEW_INTERVALS`: Comma-separated review intervals in days (default: `1,3,7,14,30`)
-
-## Development 🛠️
-
-### Building
-```bash
-# Simple build
-go build -tags "fts5" -o memory-bot
-
-# Or use the build script
-./build.sh
-```
-
-### Running
-```bash
-# Direct run
-go run -tags "fts5" main.go
-
-# Or run the built binary
-./memory-bot
-
-# Or use the run script
 ./run.sh
 ```
 
-### Code Structure
-- `main.go` - Entry point, initializes everything
-- `config/config.go` - Loads environment variables
-- `database/database.go` - Database setup with FTS5
-- `database/queries.go` - All SQL queries
-- `bot/bot.go` - Telegram bot commands and handlers
-- `bot/spaced_repetition.go` - Review reminder system
+## 🎯 Usage
 
-### Making Changes
-1. Edit the relevant files
-2. Build: `./build.sh`
-3. Test locally: `./run.sh`
-4. Commit: `git add . && git commit -m "your message"`
-5. Push: `git push origin main`
+### Available Commands
 
-### Adding New Commands
-1. Add handler function in `bot/bot.go`
-2. Register command in `Start()` function
-3. Rebuild and test
+- `/start` - Initialize the bot and get welcome message
+- `/help` - Show available commands
+- `/save <text>` - Save a new memory
+- `/search <keyword>` - Search for memories
+- `/recent [limit]` - View recent memories (default: 5)
+- `/stats` - View memory statistics
 
-## Neuroscience Principles Applied 🧬
+### Examples
 
-This bot implements key findings from memory research:
+```
+/save Remember to call mom on Sunday #family
+/search family
+/recent 10
+/stats
+```
 
-1. **Context-Dependent Memory**: Stores contextual information (time, tags, location)
-2. **Spaced Repetition**: Reviews memories at increasing intervals for better retention
-3. **Active Recall**: Prompts users to actively remember during reviews
-4. **Multi-Modal Encoding**: Supports text, and can be extended for audio/images
+## 🔐 Encryption Setup
 
-## Performance 🚄
+To enable encryption for your memories:
 
-- **Search Speed**: <100ms for typical queries (FTS5 optimization)
-- **Storage**: Efficient SQLite storage with minimal overhead
-- **Concurrency**: WAL mode supports multiple readers
+1. Generate a strong encryption key:
+```bash
+openssl rand -base64 32
+```
 
-## Troubleshooting 🔧
+2. Add it to your `.env` file:
+```env
+ENCRYPTION_KEY=your-generated-key-here
+```
 
-### Bot not responding?
-- Check your bot token is correct
-- Ensure the bot is running (`ps aux | grep memory-bot`)
-- Check logs for error messages
+3. Restart the bot:
+```bash
+./stop.sh
+./run.sh
+```
 
-### Search not working?
-- Verify FTS5 is enabled in your SQLite installation
-- Try rebuilding the FTS5 index: `sqlite3 memories.db "INSERT INTO memories_fts(memories_fts) VALUES('rebuild')"`
+For detailed encryption setup instructions, see [ENCRYPTION_SETUP.md](docs/ENCRYPTION_SETUP.md).
 
-### Database errors?
-- Check file permissions on `memories.db`
-- Ensure sufficient disk space
+## 📚 Documentation
 
-## Contributing 🤝
+- [Architecture Overview](docs/ARCHITECTURE.md)
+- [Design Patterns](docs/DESIGN_PATTERNS.md)
+- [Encryption Setup Guide](docs/ENCRYPTION_SETUP.md)
 
-Contributions are welcome! Please feel free to submit pull requests or open issues for bugs and feature requests.
+## 🏗️ Architecture
 
-## License 📄
+This project follows Clean Architecture principles with clear separation of concerns:
 
-MIT License - feel free to use this project for personal or commercial purposes.
+```
+cmd/bot/          - Application entry point
+internal/
+  ├── domain/     - Business entities and interfaces
+  ├── application/ - Use cases (business logic)
+  ├── infrastructure/ - External implementations
+  └── presentation/   - Command handlers
+pkg/
+  ├── config/     - Configuration management
+  └── encryption/ - AES-256 encryption utilities
+```
 
-## Acknowledgments 🙏
+## 🛠️ Technology Stack
 
-- Inspired by neuroscience research on memory formation and retrieval
-- Built with the excellent go-telegram-bot-api library
-- Uses SQLite's powerful FTS5 full-text search engine
+- **Language**: Go 1.21+
+- **Database**: SQLite with FTS5 (Full-Text Search)
+- **Bot Framework**: telegram-bot-api/v5
+- **Architecture**: Clean Architecture
+- **Design Patterns**: Repository, Strategy, Command, Observer
+- **Encryption**: AES-256-GCM
 
-## Support 💬
+## 🧪 Development
 
-For questions or issues, please open an issue on GitHub or contact the maintainer.
+### Build
+```bash
+make build
+# or
+./build.sh
+```
+
+### Run
+```bash
+make run
+# or
+./run.sh
+```
+
+### Stop
+```bash
+./stop.sh
+```
+
+## 🔒 Security Best Practices
+
+1. **Never commit** `.env` file (already in `.gitignore`)
+2. **Use strong encryption keys** (minimum 32 characters)
+3. **Keep your encryption key safe** - losing it means losing access to encrypted memories
+4. **Secure your `.env` file**: `chmod 600 .env`
+5. **Regularly backup** your `memories.db` file
+
+## 📝 License
+
+This project is open source and available under the MIT License.
+
+## 🤝 Contributing
+
+Contributions are welcome! Please feel free to submit a Pull Request.
+
+## 📞 Support
+
+For issues or questions, please open an issue on GitHub.
 
 ---
 
-**Built with 🧠 and ❤️ for better memory management**
+**Made with ❤️ for better memory management**
