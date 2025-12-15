@@ -470,6 +470,13 @@ func prepareFTS5SearchTerm(keyword string) string {
 		return keyword // Return hashtag as-is for exact tag matching
 	}
 
+	// Detect version numbers, IPs, or alphanumeric with dots/dashes
+	if isVersionOrSpecialFormat(keyword) {
+		// For version numbers like v1.24.27, 24.27, 192.168.1.1
+		// Use exact phrase match with wildcards
+		return "\"" + keyword + "\"*"
+	}
+
 	words := strings.Fields(keyword)
 	if len(words) == 0 {
 		return keyword
@@ -479,6 +486,12 @@ func prepareFTS5SearchTerm(keyword string) string {
 	for _, word := range words {
 		word = strings.TrimSpace(word)
 		if word == "" {
+			continue
+		}
+
+		// Check if this word is a version/special format
+		if isVersionOrSpecialFormat(word) {
+			ftsTerms = append(ftsTerms, "\""+word+"\"*")
 			continue
 		}
 
@@ -502,6 +515,28 @@ func prepareFTS5SearchTerm(keyword string) string {
 	}
 
 	return ftsTerms[0]
+}
+
+// isVersionOrSpecialFormat detects version numbers, IPs, dates, or alphanumeric with dots/dashes
+func isVersionOrSpecialFormat(word string) bool {
+	// Check for patterns like: v1.24.27, 24.27, 192.168.1.1, 2024-12-15, admin8889
+	// Contains dots, dashes with numbers, or alphanumeric combinations
+	hasNumber := false
+	hasLetter := false
+	hasSpecial := false
+
+	for _, ch := range word {
+		if ch >= '0' && ch <= '9' {
+			hasNumber = true
+		} else if (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') {
+			hasLetter = true
+		} else if ch == '.' || ch == '-' || ch == '_' {
+			hasSpecial = true
+		}
+	}
+
+	// Version-like patterns: has numbers AND (has special chars OR mixed with letters)
+	return hasNumber && (hasSpecial || (hasLetter && len(word) <= 20))
 }
 
 // escapeFTS5SpecialChars escapes special characters in FTS5 queries

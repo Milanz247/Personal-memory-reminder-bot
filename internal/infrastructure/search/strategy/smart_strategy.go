@@ -70,6 +70,19 @@ func (s *SmartSearchStrategy) Search(ctx context.Context, query SearchQuery) ([]
 	// For fallbacks, reset context filter to broaden search
 	opts.ContextFilter = nil
 
+	// Step 3.5: If primary search failed and query looks like version/number, try without quotes
+	if containsDotsOrDashes(query.Keyword) {
+		// Try searching without exact phrase matching
+		cleanQuery := strings.ReplaceAll(query.Keyword, ".", " ")
+		cleanQuery = strings.ReplaceAll(cleanQuery, "-", " ")
+		log.Printf("SmartSearch: Trying cleaned version search: %s", cleanQuery)
+		memories, err = s.repo.Search(ctx, query.UserID, cleanQuery, opts)
+		if err == nil && len(memories) > 0 {
+			log.Printf("SmartSearch: Found %d results with cleaned version search", len(memories))
+			return memories, nil
+		}
+	}
+
 	// Step 4: Try fuzzy search with shorter substrings (3+ chars)
 	words := strings.Fields(strings.TrimSpace(query.Keyword))
 	if len(words) == 1 && len(words[0]) >= 3 {
@@ -157,4 +170,9 @@ func (s *SmartSearchStrategy) Search(ctx context.Context, query SearchQuery) ([]
 // Name returns the strategy name
 func (s *SmartSearchStrategy) Name() string {
 	return "SmartSearch"
+}
+
+// containsDotsOrDashes checks if string contains dots or dashes (version numbers, IPs, etc)
+func containsDotsOrDashes(str string) bool {
+	return strings.Contains(str, ".") || strings.Contains(str, "-")
 }

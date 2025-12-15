@@ -101,7 +101,7 @@ func (c *Connection) initSchema() error {
 		tags,
 		content='memories',
 		content_rowid='id',
-		tokenize='porter unicode61'
+		tokenize="unicode61 tokenchars '.'"
 	);`
 
 	if _, err := c.DB.Exec(createFTSSQL); err != nil {
