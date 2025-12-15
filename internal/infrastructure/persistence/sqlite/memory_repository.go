@@ -140,7 +140,8 @@ func (r *MemoryRepository) FindByID(ctx context.Context, id int) (*entity.Memory
 func (r *MemoryRepository) Search(ctx context.Context, userID int64, query string, opts repository.SearchOptions) ([]*entity.Memory, error) {
 	searchTerm := prepareFTS5SearchTerm(query)
 
-	// Build dynamic SQL query with contextual filtering
+	// Build dynamic SQL query with advanced ranking
+	// Ranking factors: BM25 score + emotional weight + priority score + recency
 	sqlQuery := `
 		SELECT 
 			m.id,
@@ -151,7 +152,19 @@ func (r *MemoryRepository) Search(ctx context.Context, userID int64, query strin
 			m.created_at,
 			m.last_reviewed,
 			m.review_count,
-			memories_fts.rank as rank
+			m.emotional_weight,
+			m.priority_score,
+			memories_fts.rank as rank,
+			(
+				memories_fts.rank + 
+				(m.emotional_weight * 2.0) + 
+				(m.priority_score * 1.5) +
+				(CASE 
+					WHEN julianday('now') - julianday(m.created_at) < 7 THEN 1.0
+					WHEN julianday('now') - julianday(m.created_at) < 30 THEN 0.5
+					ELSE 0.0
+				END)
+			) as combined_rank
 		FROM 
 			memories AS m
 		JOIN 
@@ -176,7 +189,8 @@ func (r *MemoryRepository) Search(ctx context.Context, userID int64, query strin
 		}
 	}
 
-	sqlQuery += ` ORDER BY rank LIMIT ? OFFSET ?`
+	// Order by combined ranking (BM25 + emotional + priority + recency)
+	sqlQuery += ` ORDER BY combined_rank DESC LIMIT ? OFFSET ?`
 	args = append(args, opts.Limit, opts.Offset)
 
 	rows, err := r.conn.DB.QueryContext(ctx, sqlQuery, args...)
@@ -215,7 +229,7 @@ func (r *MemoryRepository) GetRecent(ctx context.Context, userID int64, limit in
 	query := `
 		SELECT 
 			id, user_id, chat_id, text_content, tags, 
-			created_at, last_reviewed, review_count
+			created_at, last_reviewed, review_count, parent_id
 		FROM memories
 		WHERE user_id = ?
 		ORDER BY created_at DESC
@@ -258,7 +272,7 @@ func (r *MemoryRepository) GetForReview(ctx context.Context, intervals []int) ([
 	query := fmt.Sprintf(`
 		SELECT 
 			id, user_id, chat_id, text_content, tags,
-			created_at, last_reviewed, review_count
+			created_at, last_reviewed, review_count, parent_id
 		FROM memories
 		WHERE %s
 		ORDER BY COALESCE(last_reviewed, created_at) ASC
@@ -362,6 +376,10 @@ func scanMemoryRow(rows *sql.Rows) (*entity.Memory, error) {
 	var m entity.Memory
 	var tags string
 	var lastReviewed sql.NullTime
+	var emotionalWeight float64
+	var priorityScore float64
+	var rank float64
+	var combinedRank float64
 
 	err := rows.Scan(
 		&m.ID,
@@ -372,7 +390,10 @@ func scanMemoryRow(rows *sql.Rows) (*entity.Memory, error) {
 		&m.CreatedAt,
 		&lastReviewed,
 		&m.ReviewCount,
-		&m.Rank,
+		&emotionalWeight,
+		&priorityScore,
+		&rank,
+		&combinedRank,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to scan row: %w", err)
@@ -382,6 +403,9 @@ func scanMemoryRow(rows *sql.Rows) (*entity.Memory, error) {
 	if lastReviewed.Valid {
 		m.LastReviewed = &lastReviewed.Time
 	}
+	m.EmotionalWeight = emotionalWeight
+	m.PriorityScore = priorityScore
+	m.Rank = combinedRank // Use combined rank for display
 
 	return &m, nil
 }
@@ -394,6 +418,7 @@ func scanMemories(rows *sql.Rows) ([]*entity.Memory, error) {
 		var m entity.Memory
 		var tags string
 		var lastReviewed sql.NullTime
+		var parentID sql.NullInt64
 
 		err := rows.Scan(
 			&m.ID,
@@ -404,6 +429,7 @@ func scanMemories(rows *sql.Rows) ([]*entity.Memory, error) {
 			&m.CreatedAt,
 			&lastReviewed,
 			&m.ReviewCount,
+			&parentID,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan row: %w", err)
@@ -412,6 +438,9 @@ func scanMemories(rows *sql.Rows) ([]*entity.Memory, error) {
 		m.Tags = strings.Fields(tags)
 		if lastReviewed.Valid {
 			m.LastReviewed = &lastReviewed.Time
+		}
+		if parentID.Valid {
+			m.ParentID = &parentID.Int64
 		}
 
 		memories = append(memories, &m)
@@ -431,9 +460,14 @@ func prepareFTS5SearchTerm(keyword string) string {
 		return keyword
 	}
 
-	// If query contains OR operator, return as-is (already prepared by strategy)
-	if strings.Contains(keyword, " OR ") {
+	// If query contains FTS5 operators, return as-is (already prepared by strategy)
+	if strings.Contains(keyword, " OR ") || strings.Contains(keyword, "NEAR(") {
 		return keyword
+	}
+
+	// Handle hashtag search (exact matching)
+	if strings.HasPrefix(keyword, "#") {
+		return keyword // Return hashtag as-is for exact tag matching
 	}
 
 	words := strings.Fields(keyword)
@@ -448,6 +482,9 @@ func prepareFTS5SearchTerm(keyword string) string {
 			continue
 		}
 
+		// Escape special FTS5 characters
+		word = escapeFTS5SpecialChars(word)
+
 		// Only add wildcard if not already present
 		if !strings.HasSuffix(word, "*") {
 			word = word + "*"
@@ -460,7 +497,32 @@ func prepareFTS5SearchTerm(keyword string) string {
 		return strings.Join(ftsTerms, " ")
 	}
 
+	if len(ftsTerms) == 0 {
+		return keyword
+	}
+
 	return ftsTerms[0]
+}
+
+// escapeFTS5SpecialChars escapes special characters in FTS5 queries
+func escapeFTS5SpecialChars(word string) string {
+	// Skip if word is already quoted or has wildcards
+	if strings.HasPrefix(word, "\"") || strings.HasSuffix(word, "*") {
+		return word
+	}
+
+	// Escape double quotes in the word
+	word = strings.ReplaceAll(word, "\"", "\"\"")
+
+	// If word contains special chars, wrap in quotes
+	specialChars := []string{"(", ")", "^", "-", "+"}
+	for _, char := range specialChars {
+		if strings.Contains(word, char) {
+			return "\"" + word + "\""
+		}
+	}
+
+	return word
 }
 
 // GetFragileMemories retrieves recently created memories that need consolidation
@@ -471,7 +533,7 @@ func (r *MemoryRepository) GetFragileMemories(ctx context.Context) ([]*entity.Me
 			id, user_id, chat_id, text_content, tags,
 			created_at, last_reviewed, review_count,
 			last_consolidated, priority_score, emotional_weight,
-			time_of_day, day_of_week, chat_source
+			time_of_day, day_of_week, chat_source, parent_id
 		FROM memories
 		WHERE 
 			julianday('now') - julianday(created_at) <= 7
@@ -533,6 +595,7 @@ func scanMemoriesWithBiologicalFields(rows *sql.Rows) ([]*entity.Memory, error) 
 		var m entity.Memory
 		var tags string
 		var lastReviewed sql.NullTime
+		var parentID sql.NullInt64
 
 		err := rows.Scan(
 			&m.ID,
@@ -549,6 +612,7 @@ func scanMemoriesWithBiologicalFields(rows *sql.Rows) ([]*entity.Memory, error) 
 			&m.TimeOfDay,
 			&m.DayOfWeek,
 			&m.ChatSource,
+			&parentID,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan row: %w", err)
@@ -557,6 +621,9 @@ func scanMemoriesWithBiologicalFields(rows *sql.Rows) ([]*entity.Memory, error) 
 		m.Tags = strings.Fields(tags)
 		if lastReviewed.Valid {
 			m.LastReviewed = &lastReviewed.Time
+		}
+		if parentID.Valid {
+			m.ParentID = &parentID.Int64
 		}
 
 		memories = append(memories, &m)

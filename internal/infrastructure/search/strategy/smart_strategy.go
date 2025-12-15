@@ -38,7 +38,18 @@ func (s *SmartSearchStrategy) Search(ctx context.Context, query SearchQuery) ([]
 		Offset: query.Offset,
 	}
 
-	// Step 1: Check for contextual cues (Biological principle: Associative recall)
+	// Step 1: Check for hashtag search (exact tag matching)
+	if strings.HasPrefix(strings.TrimSpace(query.Keyword), "#") {
+		log.Printf("SmartSearch: Detected hashtag search")
+		// Tag search is handled by FTS5 with high precision
+		memories, err := s.repo.Search(ctx, query.UserID, query.Keyword, opts)
+		if err == nil && len(memories) > 0 {
+			log.Printf("SmartSearch: Found %d results with tag search", len(memories))
+			return memories, nil
+		}
+	}
+
+	// Step 2: Check for contextual cues (Biological principle: Associative recall)
 	contextData, hasContext := s.contextService.ExtractContextCue(query.Keyword)
 	if hasContext {
 		log.Printf("SmartSearch: Detected contextual cue - %s", s.contextService.GetContextDescription(contextData))
@@ -46,7 +57,7 @@ func (s *SmartSearchStrategy) Search(ctx context.Context, query SearchQuery) ([]
 		opts.ContextFilter = &contextData
 	}
 
-	// Step 2: Try primary search (with context filter if applicable)
+	// Step 3: Try primary FTS5 search with wildcard (with context filter if applicable)
 	memories, err := s.repo.Search(ctx, query.UserID, query.Keyword, opts)
 	if err != nil {
 		log.Printf("SmartSearch: Primary search error: %v", err)
@@ -59,8 +70,21 @@ func (s *SmartSearchStrategy) Search(ctx context.Context, query SearchQuery) ([]
 	// For fallbacks, reset context filter to broaden search
 	opts.ContextFilter = nil
 
-	// Fallback 1: Try AND search
+	// Step 4: Try fuzzy search with shorter substrings (3+ chars)
 	words := strings.Fields(strings.TrimSpace(query.Keyword))
+	if len(words) == 1 && len(words[0]) >= 3 {
+		word := words[0]
+		// Try searching with first 3 characters for fuzzy matching
+		fuzzyQuery := word[:3] + "*"
+		log.Printf("SmartSearch: Trying fuzzy search with term: %s", fuzzyQuery)
+		memories, err = s.repo.Search(ctx, query.UserID, fuzzyQuery, opts)
+		if err == nil && len(memories) > 0 {
+			log.Printf("SmartSearch: Found %d results with fuzzy search", len(memories))
+			return memories, nil
+		}
+	}
+
+	// Step 5: Try AND search (all words must match)
 	if len(words) > 1 {
 		andTerms := make([]string, len(words))
 		for i, word := range words {
@@ -79,10 +103,26 @@ func (s *SmartSearchStrategy) Search(ctx context.Context, query SearchQuery) ([]
 		}
 	}
 
-	// Fallback 2: Try OR search (without wildcards in OR to avoid syntax errors)
+	// Step 6: Try partial match (any word matches)
 	if len(words) > 1 {
-		// FTS5 doesn't support wildcards with OR operator properly
-		// Use individual terms without wildcards for OR search
+		// Try each word individually with wildcards
+		for _, word := range words {
+			if len(word) < 3 {
+				continue // Skip very short words
+			}
+			partialQuery := word + "*"
+			log.Printf("SmartSearch: Trying partial match with term: %s", partialQuery)
+			memories, err = s.repo.Search(ctx, query.UserID, partialQuery, opts)
+			if err == nil && len(memories) > 0 {
+				log.Printf("SmartSearch: Found %d results with partial match", len(memories))
+				return memories, nil
+			}
+		}
+	}
+
+	// Step 7: Try OR search (broader search - any word matches)
+	if len(words) > 1 {
+		// FTS5 OR search without wildcards for maximum recall
 		orTerms := make([]string, len(words))
 		copy(orTerms, words)
 		fallbackQuery := strings.Join(orTerms, " OR ")
@@ -94,6 +134,17 @@ func (s *SmartSearchStrategy) Search(ctx context.Context, query SearchQuery) ([]
 		}
 		if err == nil && len(memories) > 0 {
 			log.Printf("SmartSearch: Found %d results with OR fallback", len(memories))
+			return memories, nil
+		}
+	}
+
+	// Step 8: Last resort - search with NEAR operator for proximity matching
+	if len(words) > 1 {
+		nearQuery := "NEAR(" + strings.Join(words, " ") + ", 10)"
+		log.Printf("SmartSearch: Trying NEAR proximity search with term: %s", nearQuery)
+		memories, err = s.repo.Search(ctx, query.UserID, nearQuery, opts)
+		if err == nil && len(memories) > 0 {
+			log.Printf("SmartSearch: Found %d results with NEAR search", len(memories))
 			return memories, nil
 		}
 	}
