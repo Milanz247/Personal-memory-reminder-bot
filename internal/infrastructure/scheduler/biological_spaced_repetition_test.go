@@ -75,7 +75,7 @@ func TestBiologicalSpacedRepetition_CalculateNextReviewInterval(t *testing.T) {
 				EmotionalWeight: 0.7,
 				PriorityScore:   0.0,
 			},
-			expectedMinDays: 9.0,  // 7 * 1.35
+			expectedMinDays: 9.0, // 7 * 1.35
 			expectedMaxDays: 10.0,
 		},
 		{
@@ -96,11 +96,11 @@ func TestBiologicalSpacedRepetition_CalculateNextReviewInterval(t *testing.T) {
 			days := interval.Hours() / 24
 
 			if days < tt.expectedMinDays || days > tt.expectedMaxDays {
-				t.Errorf("CalculateNextReviewInterval() = %.2f days, want between %.2f and %.2f", 
+				t.Errorf("CalculateNextReviewInterval() = %.2f days, want between %.2f and %.2f",
 					days, tt.expectedMinDays, tt.expectedMaxDays)
 			}
 
-			t.Logf("✅ ReviewCount=%d, Emotional=%.1f, Priority=%.1f → %.2f days", 
+			t.Logf("✅ ReviewCount=%d, Emotional=%.1f, Priority=%.1f → %.2f days",
 				tt.memory.ReviewCount, tt.memory.EmotionalWeight, tt.memory.PriorityScore, days)
 		})
 	}
@@ -161,13 +161,12 @@ func TestBiologicalSpacedRepetition_ShouldReviewNow(t *testing.T) {
 
 	now := time.Now()
 	yesterday := now.AddDate(0, 0, -1)
-	tomorrow := now.AddDate(0, 0, 1)
 	lastWeek := now.AddDate(0, 0, -7)
 
 	tests := []struct {
-		name           string
-		memory         *entity.Memory
-		shouldReview   bool
+		name         string
+		memory       *entity.Memory
+		shouldReview bool
 	}{
 		{
 			name: "Memory due yesterday",
@@ -275,11 +274,11 @@ func TestBiologicalSpacedRepetition_CalculateForgettingCurve(t *testing.T) {
 			retention := bio.CalculateForgettingCurve(tt.memory, tt.daysSinceReview)
 
 			if retention < tt.minRetention || retention > tt.maxRetention {
-				t.Errorf("CalculateForgettingCurve() = %.3f, want between %.3f and %.3f", 
+				t.Errorf("CalculateForgettingCurve() = %.3f, want between %.3f and %.3f",
 					retention, tt.minRetention, tt.maxRetention)
 			}
 
-			t.Logf("✅ ReviewCount=%d, Emotional=%.1f, Days=%d → Retention=%.2f%%", 
+			t.Logf("✅ ReviewCount=%d, Emotional=%.1f, Days=%d → Retention=%.2f%%",
 				tt.memory.ReviewCount, tt.memory.EmotionalWeight, tt.daysSinceReview, retention*100)
 		})
 	}
@@ -290,12 +289,11 @@ func TestBiologicalSpacedRepetition_NeedsUrgentReview(t *testing.T) {
 	bio := scheduler.NewBiologicalSpacedRepetition(baseIntervals)
 
 	now := time.Now()
-	weekAgo := now.AddDate(0, 0, -7)
 	monthAgo := now.AddDate(0, 0, -30)
 
 	tests := []struct {
-		name          string
-		memory        *entity.Memory
+		name           string
+		memory         *entity.Memory
 		expectedUrgent bool
 	}{
 		{

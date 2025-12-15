@@ -9,11 +9,11 @@ func TestSentimentAnalyzer_Analyze(t *testing.T) {
 	analyzer := service.NewSentimentAnalyzer()
 
 	tests := []struct {
-		name           string
-		content        string
-		minWeight      float64
-		maxWeight      float64
-		expectedLevel  string
+		name          string
+		content       string
+		minWeight     float64
+		maxWeight     float64
+		expectedLevel string
 	}{
 		{
 			name:          "Highly positive emotional content",
