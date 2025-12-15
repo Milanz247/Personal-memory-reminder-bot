@@ -17,6 +17,16 @@ type Memory struct {
 	LastReviewed *time.Time
 	ReviewCount  int
 	Rank         float64 // For search result ranking
+
+	// Biologically-inspired fields
+	LastConsolidated time.Time // Simulates sleep-based consolidation
+	PriorityScore    float64   // Temporary boost for fragile new memories
+	EmotionalWeight  float64   // Amygdala's emotional tagging (0.0 to 1.0)
+
+	// Contextual encoding (Hippocampus function)
+	TimeOfDay  string // "Morning", "Afternoon", "Evening", "Night"
+	DayOfWeek  string // "Monday", "Tuesday", etc.
+	ChatSource string // "Telegram", "WhatsApp", etc.
 }
 
 // NewMemory creates a new Memory entity with validation
@@ -27,11 +37,17 @@ func NewMemory(userID, chatID int64, content string) *Memory {
 		Content:     strings.TrimSpace(content),
 		CreatedAt:   time.Now(),
 		ReviewCount: 0,
+
+		// Initialize biologically-inspired fields
+		LastConsolidated: time.Now(),
+		PriorityScore:    0.0,
+		EmotionalWeight:  0.0,
+		ChatSource:       "Telegram", // Default
 	}
-	
+
 	// Automatically extract tags
 	memory.Tags = memory.extractTags()
-	
+
 	return memory
 }
 
@@ -40,19 +56,19 @@ func (m *Memory) NeedsReview(intervals []int) bool {
 	if m.ReviewCount >= len(intervals) {
 		return false
 	}
-	
+
 	var lastTime time.Time
 	if m.LastReviewed != nil {
 		lastTime = *m.LastReviewed
 	} else {
 		lastTime = m.CreatedAt
 	}
-	
+
 	daysSince := int(time.Since(lastTime).Hours() / 24)
-	
+
 	// Get the interval for current review count
 	interval := intervals[m.ReviewCount]
-	
+
 	return daysSince >= interval
 }
 
@@ -67,7 +83,7 @@ func (m *Memory) MarkAsReviewed() {
 func (m *Memory) extractTags() []string {
 	var tags []string
 	words := strings.Fields(m.Content)
-	
+
 	for _, word := range words {
 		if strings.HasPrefix(word, "#") {
 			tag := strings.TrimPrefix(word, "#")
@@ -76,7 +92,7 @@ func (m *Memory) extractTags() []string {
 			}
 		}
 	}
-	
+
 	return tags
 }
 
@@ -93,7 +109,7 @@ func (m *Memory) DaysSinceLastReview() int {
 	} else {
 		lastTime = m.CreatedAt
 	}
-	
+
 	return int(time.Since(lastTime).Hours() / 24)
 }
 

@@ -39,8 +39,12 @@ func (r *MemoryRepository) Save(ctx context.Context, memory *entity.Memory) (int
 	}
 
 	stmt, err := r.conn.DB.PrepareContext(ctx, `
-		INSERT INTO memories (user_id, chat_id, text_content, search_content, tags, created_at)
-		VALUES (?, ?, ?, ?, ?, ?)
+		INSERT INTO memories (
+			user_id, chat_id, text_content, search_content, tags, created_at,
+			last_consolidated, priority_score, emotional_weight,
+			time_of_day, day_of_week, chat_source
+		)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`)
 	if err != nil {
 		return 0, fmt.Errorf("failed to prepare statement: %w", err)
@@ -54,6 +58,12 @@ func (r *MemoryRepository) Save(ctx context.Context, memory *entity.Memory) (int
 		memory.Content,   // Plain text for FTS5 searching
 		memory.GetTagsString(),
 		memory.CreatedAt,
+		memory.LastConsolidated,
+		memory.PriorityScore,
+		memory.EmotionalWeight,
+		memory.TimeOfDay,
+		memory.DayOfWeek,
+		memory.ChatSource,
 	)
 	if err != nil {
 		return 0, fmt.Errorf("failed to save memory: %w", err)
@@ -64,7 +74,8 @@ func (r *MemoryRepository) Save(ctx context.Context, memory *entity.Memory) (int
 		return 0, fmt.Errorf("failed to get last insert ID: %w", err)
 	}
 
-	log.Printf("Memory saved: ID=%d, UserID=%d", id, memory.UserID)
+	log.Printf("Memory saved: ID=%d, UserID=%d, EmotionalWeight=%.2f, Context=%s %s",
+		id, memory.UserID, memory.EmotionalWeight, memory.DayOfWeek, memory.TimeOfDay)
 	return id, nil
 }
 
@@ -72,7 +83,9 @@ func (r *MemoryRepository) Save(ctx context.Context, memory *entity.Memory) (int
 func (r *MemoryRepository) FindByID(ctx context.Context, id int) (*entity.Memory, error) {
 	query := `
 		SELECT id, user_id, chat_id, text_content, tags, 
-		       created_at, last_reviewed, review_count
+		       created_at, last_reviewed, review_count,
+		       last_consolidated, priority_score, emotional_weight,
+		       time_of_day, day_of_week, chat_source
 		FROM memories
 		WHERE id = ?
 	`
@@ -90,6 +103,12 @@ func (r *MemoryRepository) FindByID(ctx context.Context, id int) (*entity.Memory
 		&m.CreatedAt,
 		&lastReviewed,
 		&m.ReviewCount,
+		&m.LastConsolidated,
+		&m.PriorityScore,
+		&m.EmotionalWeight,
+		&m.TimeOfDay,
+		&m.DayOfWeek,
+		&m.ChatSource,
 	)
 
 	if err == sql.ErrNoRows {
@@ -423,4 +442,110 @@ func prepareFTS5SearchTerm(keyword string) string {
 	}
 
 	return ftsTerms[0]
+}
+
+// GetFragileMemories retrieves recently created memories that need consolidation
+// Biological principle: Memories created within the last 7 days with low review counts
+func (r *MemoryRepository) GetFragileMemories(ctx context.Context) ([]*entity.Memory, error) {
+	query := `
+		SELECT 
+			id, user_id, chat_id, text_content, tags,
+			created_at, last_reviewed, review_count,
+			last_consolidated, priority_score, emotional_weight,
+			time_of_day, day_of_week, chat_source
+		FROM memories
+		WHERE 
+			julianday('now') - julianday(created_at) <= 7
+			AND review_count < 2
+		ORDER BY created_at DESC
+	`
+
+	rows, err := r.conn.DB.QueryContext(ctx, query)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get fragile memories: %w", err)
+	}
+	defer rows.Close()
+
+	memories, err := scanMemoriesWithBiologicalFields(rows)
+	if err != nil {
+		return nil, err
+	}
+
+	// Decrypt content for each memory
+	for _, m := range memories {
+		decryptedContent, err := encryption.DecryptIfEnabled(r.encryptor, m.Content)
+		if err != nil {
+			log.Printf("Warning: failed to decrypt memory %d: %v", m.ID, err)
+			continue
+		}
+		m.Content = decryptedContent
+	}
+
+	log.Printf("Found %d fragile memories for consolidation", len(memories))
+	return memories, nil
+}
+
+// UpdateConsolidation updates consolidation-related fields
+func (r *MemoryRepository) UpdateConsolidation(ctx context.Context, memory *entity.Memory) error {
+	stmt, err := r.conn.DB.PrepareContext(ctx, `
+		UPDATE memories
+		SET last_consolidated = ?, priority_score = ?
+		WHERE id = ?
+	`)
+	if err != nil {
+		return fmt.Errorf("failed to prepare consolidation update: %w", err)
+	}
+	defer stmt.Close()
+
+	_, err = stmt.ExecContext(ctx, memory.LastConsolidated, memory.PriorityScore, memory.ID)
+	if err != nil {
+		return fmt.Errorf("failed to update consolidation: %w", err)
+	}
+
+	log.Printf("Updated consolidation for memory %d: PriorityScore=%.2f", memory.ID, memory.PriorityScore)
+	return nil
+}
+
+// scanMemoriesWithBiologicalFields scans memory rows including biological fields
+func scanMemoriesWithBiologicalFields(rows *sql.Rows) ([]*entity.Memory, error) {
+	memories := []*entity.Memory{}
+
+	for rows.Next() {
+		var m entity.Memory
+		var tags string
+		var lastReviewed sql.NullTime
+
+		err := rows.Scan(
+			&m.ID,
+			&m.UserID,
+			&m.ChatID,
+			&m.Content,
+			&tags,
+			&m.CreatedAt,
+			&lastReviewed,
+			&m.ReviewCount,
+			&m.LastConsolidated,
+			&m.PriorityScore,
+			&m.EmotionalWeight,
+			&m.TimeOfDay,
+			&m.DayOfWeek,
+			&m.ChatSource,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan row: %w", err)
+		}
+
+		m.Tags = strings.Fields(tags)
+		if lastReviewed.Valid {
+			m.LastReviewed = &lastReviewed.Time
+		}
+
+		memories = append(memories, &m)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating rows: %w", err)
+	}
+
+	return memories, nil
 }

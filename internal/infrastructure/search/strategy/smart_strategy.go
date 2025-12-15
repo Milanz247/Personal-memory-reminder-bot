@@ -7,33 +7,51 @@ import (
 
 	"memory-bot/internal/domain/entity"
 	"memory-bot/internal/domain/repository"
+	"memory-bot/internal/domain/service"
 )
 
 // SmartSearchStrategy implements intelligent search with fallback strategies
-// 1. Try primary FTS5 search first
-// 2. If no results, try AND search with wildcards
-// 3. If still no results, try OR search for broader results
+// Enhanced with biological contextual recall (Hippocampus function)
+// 1. Try contextual search if user provides time/day cues
+// 2. Try primary FTS5 search
+// 3. If no results, try AND search with wildcards
+// 4. If still no results, try OR search for broader results
 type SmartSearchStrategy struct {
-	repo repository.MemoryRepository
+	repo           repository.MemoryRepository
+	contextService *service.ContextualMetadataService
 }
 
 // NewSmartSearchStrategy creates a new smart search strategy
 func NewSmartSearchStrategy(repo repository.MemoryRepository) *SmartSearchStrategy {
 	return &SmartSearchStrategy{
-		repo: repo,
+		repo:           repo,
+		contextService: service.NewContextualMetadataService(),
 	}
 }
 
-// Search executes smart search with fallback strategies
+// Search executes smart search with contextual awareness and fallback strategies
 func (s *SmartSearchStrategy) Search(ctx context.Context, query SearchQuery) ([]*entity.Memory, error) {
 	log.Printf("SmartSearch: Starting search for userID=%d, keyword='%s'", query.UserID, query.Keyword)
 
-	// Try primary search
 	opts := repository.SearchOptions{
 		Limit:  query.Limit,
 		Offset: query.Offset,
 	}
 
+	// Step 1: Check for contextual cues (Biological principle: Associative recall)
+	contextData, hasContext := s.contextService.ExtractContextCue(query.Keyword)
+	if hasContext {
+		log.Printf("SmartSearch: Detected contextual cue - %s", s.contextService.GetContextDescription(contextData))
+
+		// Try context-aware search first
+		memories, err := s.searchWithContext(ctx, query.UserID, query.Keyword, contextData, opts)
+		if err == nil && len(memories) > 0 {
+			log.Printf("SmartSearch: Found %d results with contextual search", len(memories))
+			return memories, nil
+		}
+	}
+
+	// Step 2: Try primary search
 	memories, err := s.repo.Search(ctx, query.UserID, query.Keyword, opts)
 	if err != nil {
 		log.Printf("SmartSearch: Primary search error: %v", err)
@@ -88,6 +106,37 @@ func (s *SmartSearchStrategy) Search(ctx context.Context, query SearchQuery) ([]
 	// No results found
 	log.Printf("SmartSearch: No results found for keyword '%s'", query.Keyword)
 	return []*entity.Memory{}, nil
+}
+
+// searchWithContext performs context-aware memory retrieval
+// Simulates the Hippocampus linking contextual information to memories
+func (s *SmartSearchStrategy) searchWithContext(
+	ctx context.Context,
+	userID int64,
+	keyword string,
+	contextData service.ContextualData,
+	opts repository.SearchOptions,
+) ([]*entity.Memory, error) {
+	// Get all memories matching the keyword
+	allMemories, err := s.repo.Search(ctx, userID, keyword, opts)
+	if err != nil {
+		return nil, err
+	}
+
+	// Filter by context
+	var contextualMemories []*entity.Memory
+	for _, memory := range allMemories {
+		if s.contextService.MatchesContext(memory.TimeOfDay, memory.DayOfWeek, contextData) {
+			contextualMemories = append(contextualMemories, memory)
+		}
+	}
+
+	// If contextual filtering yields no results, return all matches
+	if len(contextualMemories) == 0 {
+		return allMemories, nil
+	}
+
+	return contextualMemories, nil
 }
 
 // Name returns the strategy name

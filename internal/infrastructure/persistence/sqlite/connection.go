@@ -44,7 +44,7 @@ func NewConnection(dbPath string) (*Connection, error) {
 
 // initSchema creates the necessary tables and indexes
 func (c *Connection) initSchema() error {
-	// Main memories table
+	// Main memories table with biological fields
 	createTableSQL := `
 	CREATE TABLE IF NOT EXISTS memories (
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -55,7 +55,13 @@ func (c *Connection) initSchema() error {
 		tags TEXT,
 		created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
 		last_reviewed DATETIME,
-		review_count INTEGER DEFAULT 0
+		review_count INTEGER DEFAULT 0,
+		last_consolidated DATETIME DEFAULT CURRENT_TIMESTAMP,
+		priority_score REAL DEFAULT 0.0,
+		emotional_weight REAL DEFAULT 0.0,
+		time_of_day TEXT DEFAULT '',
+		day_of_week TEXT DEFAULT '',
+		chat_source TEXT DEFAULT 'Telegram'
 	);`
 
 	if _, err := c.DB.Exec(createTableSQL); err != nil {
@@ -69,6 +75,20 @@ func (c *Connection) initSchema() error {
 
 	if _, err := c.DB.Exec(createIndexSQL); err != nil {
 		return fmt.Errorf("failed to create index: %w", err)
+	}
+
+	// Create biological memory system indexes
+	biologicalIndexes := []string{
+		`CREATE INDEX IF NOT EXISTS idx_memories_time_of_day ON memories(time_of_day);`,
+		`CREATE INDEX IF NOT EXISTS idx_memories_day_of_week ON memories(day_of_week);`,
+		`CREATE INDEX IF NOT EXISTS idx_memories_emotional_weight ON memories(emotional_weight DESC);`,
+		`CREATE INDEX IF NOT EXISTS idx_memories_priority_score ON memories(priority_score DESC);`,
+	}
+
+	for _, indexSQL := range biologicalIndexes {
+		if _, err := c.DB.Exec(indexSQL); err != nil {
+			return fmt.Errorf("failed to create biological index: %w", err)
+		}
 	}
 
 	// Create FTS5 virtual table for full-text search

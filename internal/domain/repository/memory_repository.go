@@ -37,4 +37,12 @@ type MemoryRepository interface {
 
 	// Count returns the total number of memories for a user
 	Count(ctx context.Context, userID int64) (int, error)
+
+	// Biological memory system methods
+
+	// GetFragileMemories retrieves recently created memories that need consolidation
+	GetFragileMemories(ctx context.Context) ([]*entity.Memory, error)
+
+	// UpdateConsolidation updates consolidation-related fields
+	UpdateConsolidation(ctx context.Context, memory *entity.Memory) error
 }
