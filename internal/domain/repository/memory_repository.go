@@ -3,12 +3,14 @@ package repository
 import (
 	"context"
 	"memory-bot/internal/domain/entity"
+	"memory-bot/internal/domain/service"
 )
 
 // SearchOptions defines options for memory search
 type SearchOptions struct {
-	Limit  int
-	Offset int
+	Limit         int
+	Offset        int
+	ContextFilter *service.ContextualData // For SQL-level contextual filtering
 }
 
 // MemoryRepository defines the interface for memory data access

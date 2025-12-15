@@ -28,31 +28,56 @@ func (c *StartCommand) Description() string {
 func (c *StartCommand) Execute(ctx context.Context, bot BotAPI, message *tgbotapi.Message) error {
 	imagePath := "assets/images/welcome_banner.png"
 
-	// Short, decorated caption with founder info
-	caption := `🧠 *Memory Storage Bot*
+	// Professional welcome with biological features
+	caption := `🧠 *Biological Memory System*
+━━━━━━━━━━━━━━━━━━━━━━━
 
-Your intelligent personal memory assistant powered by AI.
+Welcome to your intelligent personal memory assistant powered by neuroscience principles!
 
-✨ *Features*
-• Smart search with FTS5
-• Spaced repetition reminders
+🔬 *Based on Brain Science:*
+• 😊 Amygdala - Emotional tagging
+• 🧮 Hippocampus - Context encoding
+• 💤 Sleep consolidation
+• 🔄 LTP spaced repetition
+• 📉 Ebbinghaus forgetting curve
+
+✨ *Smart Features:*
+• Emotional weight analysis (0-100%)
+• Time & day context capture
+• Priority score calculation
+• Intelligent search with FTS5
 • Encrypted storage
-• Tag organization
+• Automatic review scheduling
 
-🚀 *Quick Start*
-/save - Save memories
-/search - Find anything
-/help - Get help
+🚀 *Quick Start:*
+/save - Save memories with emotion
+/search - Smart contextual search
+/recent - View latest memories
+/stats - Memory statistics
+/help - Detailed help
 
-━━━━━━━━━━━━━━━
+━━━━━━━━━━━━━━━━━━━━━━━
 👨‍💻 *Created by:* Milan Madusanka
-🔗 [GitHub](https://github.com/Milanz247)
-━━━━━━━━━━━━━━━`
+🔗 [GitHub](https://github.com/Milanz247)`
 
 	if fileExists(imagePath) {
 		photo := tgbotapi.NewPhoto(message.Chat.ID, tgbotapi.FilePath(imagePath))
 		photo.Caption = caption
 		photo.ParseMode = "Markdown"
+
+		// Add quick action buttons
+		keyboard := tgbotapi.NewInlineKeyboardMarkup(
+			tgbotapi.NewInlineKeyboardRow(
+				tgbotapi.NewInlineKeyboardButtonData("💾 Save Memory", "cmd_save"),
+				tgbotapi.NewInlineKeyboardButtonData("🔍 Search", "cmd_search"),
+			),
+			tgbotapi.NewInlineKeyboardRow(
+				tgbotapi.NewInlineKeyboardButtonData("📊 Stats", "cmd_stats"),
+				tgbotapi.NewInlineKeyboardButtonData("❓ Help", "cmd_help"),
+			),
+		)
+		photo.ReplyMarkup = keyboard
+
 		_, err := bot.Send(photo)
 		return err
 	}
@@ -60,6 +85,20 @@ Your intelligent personal memory assistant powered by AI.
 	// Fallback if image not found
 	msg := tgbotapi.NewMessage(message.Chat.ID, caption)
 	msg.ParseMode = "Markdown"
+
+	// Add quick action buttons
+	keyboard := tgbotapi.NewInlineKeyboardMarkup(
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("💾 Save Memory", "cmd_save"),
+			tgbotapi.NewInlineKeyboardButtonData("🔍 Search", "cmd_search"),
+		),
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("📊 Stats", "cmd_stats"),
+			tgbotapi.NewInlineKeyboardButtonData("❓ Help", "cmd_help"),
+		),
+	)
+	msg.ReplyMarkup = keyboard
+
 	_, err := bot.Send(msg)
 	return err
 }

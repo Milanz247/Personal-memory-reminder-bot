@@ -42,9 +42,9 @@ func (r *MemoryRepository) Save(ctx context.Context, memory *entity.Memory) (int
 		INSERT INTO memories (
 			user_id, chat_id, text_content, search_content, tags, created_at,
 			last_consolidated, priority_score, emotional_weight,
-			time_of_day, day_of_week, chat_source
+			time_of_day, day_of_week, chat_source, parent_id
 		)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`)
 	if err != nil {
 		return 0, fmt.Errorf("failed to prepare statement: %w", err)
@@ -64,6 +64,7 @@ func (r *MemoryRepository) Save(ctx context.Context, memory *entity.Memory) (int
 		memory.TimeOfDay,
 		memory.DayOfWeek,
 		memory.ChatSource,
+		memory.ParentID,
 	)
 	if err != nil {
 		return 0, fmt.Errorf("failed to save memory: %w", err)
@@ -85,7 +86,7 @@ func (r *MemoryRepository) FindByID(ctx context.Context, id int) (*entity.Memory
 		SELECT id, user_id, chat_id, text_content, tags, 
 		       created_at, last_reviewed, review_count,
 		       last_consolidated, priority_score, emotional_weight,
-		       time_of_day, day_of_week, chat_source
+		       time_of_day, day_of_week, chat_source, parent_id
 		FROM memories
 		WHERE id = ?
 	`
@@ -93,6 +94,7 @@ func (r *MemoryRepository) FindByID(ctx context.Context, id int) (*entity.Memory
 	var m entity.Memory
 	var tags string
 	var lastReviewed sql.NullTime
+	var parentID sql.NullInt64
 
 	err := r.conn.DB.QueryRowContext(ctx, query, id).Scan(
 		&m.ID,
@@ -109,6 +111,7 @@ func (r *MemoryRepository) FindByID(ctx context.Context, id int) (*entity.Memory
 		&m.TimeOfDay,
 		&m.DayOfWeek,
 		&m.ChatSource,
+		&parentID,
 	)
 
 	if err == sql.ErrNoRows {
@@ -133,11 +136,12 @@ func (r *MemoryRepository) FindByID(ctx context.Context, id int) (*entity.Memory
 	return &m, nil
 }
 
-// Search performs FTS5 search with ranking
+// Search performs FTS5 search with ranking and optional contextual filtering
 func (r *MemoryRepository) Search(ctx context.Context, userID int64, query string, opts repository.SearchOptions) ([]*entity.Memory, error) {
 	searchTerm := prepareFTS5SearchTerm(query)
 
-	sql := `
+	// Build dynamic SQL query with contextual filtering
+	sqlQuery := `
 		SELECT 
 			m.id,
 			m.user_id,
@@ -154,13 +158,28 @@ func (r *MemoryRepository) Search(ctx context.Context, userID int64, query strin
 			memories_fts ON m.id = memories_fts.rowid
 		WHERE 
 			m.user_id = ? AND 
-			memories_fts MATCH ?
-		ORDER BY 
-			rank
-		LIMIT ? OFFSET ?
-	`
+			memories_fts MATCH ?`
 
-	rows, err := r.conn.DB.QueryContext(ctx, sql, userID, searchTerm, opts.Limit, opts.Offset)
+	args := []interface{}{userID, searchTerm}
+
+	// Apply contextual filtering directly in SQL for better performance
+	if opts.ContextFilter != nil {
+		if opts.ContextFilter.TimeOfDay != "" {
+			sqlQuery += " AND m.time_of_day = ?"
+			args = append(args, opts.ContextFilter.TimeOfDay)
+			log.Printf("Search: Applying TimeOfDay filter: %s", opts.ContextFilter.TimeOfDay)
+		}
+		if opts.ContextFilter.DayOfWeek != "" {
+			sqlQuery += " AND m.day_of_week = ?"
+			args = append(args, opts.ContextFilter.DayOfWeek)
+			log.Printf("Search: Applying DayOfWeek filter: %s", opts.ContextFilter.DayOfWeek)
+		}
+	}
+
+	sqlQuery += ` ORDER BY rank LIMIT ? OFFSET ?`
+	args = append(args, opts.Limit, opts.Offset)
+
+	rows, err := r.conn.DB.QueryContext(ctx, sqlQuery, args...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to search memories: %w", err)
 	}

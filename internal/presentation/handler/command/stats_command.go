@@ -42,20 +42,46 @@ func (c *StatsCommand) Execute(ctx context.Context, bot BotAPI, message *tgbotap
 	output, err := c.useCase.Execute(ctx, input)
 	if err != nil {
 		log.Printf("Error getting statistics: %v", err)
-		msg := tgbotapi.NewMessage(message.Chat.ID, "❌ Failed to retrieve statistics.")
+		msg := tgbotapi.NewMessage(message.Chat.ID, "❌ *Failed to retrieve statistics*\n\nPlease try again later.")
+		msg.ParseMode = "Markdown"
 		bot.Send(msg)
 		return err
 	}
 
-	response := fmt.Sprintf(`📊 *Your Memory Statistics:*
-
-Total Memories: %d
-Bot Active Since: %s
-
-Keep building your memory collection! 🧠`, output.TotalMemories, time.Now().Format("2006-01-02"))
+	// Professional statistics display with biological insights
+	response := "📊 *Your Memory Statistics*\n" +
+		"━━━━━━━━━━━━━━━━━━━━━━━\n\n" +
+		"📚 *Memory Collection:*\n" +
+		fmt.Sprintf("• Total Memories: `%d`\n", output.TotalMemories) +
+		fmt.Sprintf("• Active Since: `%s`\n\n", time.Now().Format("2006-01-02")) +
+		"🧠 *Biological Features:*\n" +
+		"• Emotional tagging active\n" +
+		"• Context encoding enabled\n" +
+		"• Sleep consolidation running\n" +
+		"• LTP spaced repetition scheduled\n\n" +
+		"💡 *Tips for Better Memory:*\n" +
+		"• Use emotional words for stronger recall\n" +
+		"• Add context (time, place, people)\n" +
+		"• Review memories regularly\n" +
+		"• Use hashtags for organization\n\n" +
+		"Keep building your memory collection! 🚀"
 
 	msg := tgbotapi.NewMessage(message.Chat.ID, response)
 	msg.ParseMode = "Markdown"
+
+	// Add action buttons
+	keyboard := tgbotapi.NewInlineKeyboardMarkup(
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("📝 Save Memory", "cmd_save"),
+			tgbotapi.NewInlineKeyboardButtonData("📚 View Recent", "cmd_recent"),
+		),
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("🔍 Search", "cmd_search"),
+			tgbotapi.NewInlineKeyboardButtonData("❓ Help", "cmd_help"),
+		),
+	)
+	msg.ReplyMarkup = keyboard
+
 	_, err = bot.Send(msg)
 	return err
 }

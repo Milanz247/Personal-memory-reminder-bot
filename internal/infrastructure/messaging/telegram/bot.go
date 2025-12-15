@@ -160,15 +160,33 @@ func (b *Bot) handleCommand(ctx context.Context, message *tgbotapi.Message) {
 func (b *Bot) handleCallbackQuery(query *tgbotapi.CallbackQuery) {
 	ctx := context.Background()
 
-	parts := strings.Split(query.Data, ":")
+	parts := strings.Split(query.Data, "_")
 	if len(parts) < 2 {
-		b.api.Send(tgbotapi.NewCallback(query.ID, "Invalid request"))
-		return
+		// Try old format with colon
+		parts = strings.Split(query.Data, ":")
+		if len(parts) < 2 {
+			b.api.Send(tgbotapi.NewCallback(query.ID, "Invalid request"))
+			return
+		}
 	}
 
 	action := parts[0]
 
 	switch action {
+	case "cmd":
+		// Handle command buttons (from start, save, stats)
+		cmdName := parts[1]
+		if cmd, ok := b.registry.Get(cmdName); ok {
+			msg := &tgbotapi.Message{
+				Chat: query.Message.Chat,
+				From: query.From,
+			}
+			cmd.Execute(ctx, b.api, msg)
+			b.api.Send(tgbotapi.NewCallback(query.ID, ""))
+		} else {
+			b.api.Send(tgbotapi.NewCallback(query.ID, "Command not found"))
+		}
+
 	case "dosave":
 		userID := query.From.ID
 		if msg, exists := b.userMessages[userID]; exists {

@@ -27,6 +27,9 @@ type Memory struct {
 	TimeOfDay  string // "Morning", "Afternoon", "Evening", "Night"
 	DayOfWeek  string // "Monday", "Tuesday", etc.
 	ChatSource string // "Telegram", "WhatsApp", etc.
+
+	// Memory Chunking (Hierarchical memory organization)
+	ParentID *int64 // Points to parent memory for sub-memories (nil for root memories)
 }
 
 // NewMemory creates a new Memory entity with validation

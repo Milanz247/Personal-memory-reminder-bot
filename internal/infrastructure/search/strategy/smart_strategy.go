@@ -42,16 +42,11 @@ func (s *SmartSearchStrategy) Search(ctx context.Context, query SearchQuery) ([]
 	contextData, hasContext := s.contextService.ExtractContextCue(query.Keyword)
 	if hasContext {
 		log.Printf("SmartSearch: Detected contextual cue - %s", s.contextService.GetContextDescription(contextData))
-
-		// Try context-aware search first
-		memories, err := s.searchWithContext(ctx, query.UserID, query.Keyword, contextData, opts)
-		if err == nil && len(memories) > 0 {
-			log.Printf("SmartSearch: Found %d results with contextual search", len(memories))
-			return memories, nil
-		}
+		// Apply context filter directly at SQL level for better performance
+		opts.ContextFilter = &contextData
 	}
 
-	// Step 2: Try primary search
+	// Step 2: Try primary search (with context filter if applicable)
 	memories, err := s.repo.Search(ctx, query.UserID, query.Keyword, opts)
 	if err != nil {
 		log.Printf("SmartSearch: Primary search error: %v", err)
@@ -60,6 +55,9 @@ func (s *SmartSearchStrategy) Search(ctx context.Context, query SearchQuery) ([]
 		log.Printf("SmartSearch: Found %d results with primary search", len(memories))
 		return memories, nil
 	}
+
+	// For fallbacks, reset context filter to broaden search
+	opts.ContextFilter = nil
 
 	// Fallback 1: Try AND search
 	words := strings.Fields(strings.TrimSpace(query.Keyword))
@@ -86,10 +84,7 @@ func (s *SmartSearchStrategy) Search(ctx context.Context, query SearchQuery) ([]
 		// FTS5 doesn't support wildcards with OR operator properly
 		// Use individual terms without wildcards for OR search
 		orTerms := make([]string, len(words))
-		for i, word := range words {
-			// Remove wildcard for OR queries to avoid FTS5 syntax errors
-			orTerms[i] = word
-		}
+		copy(orTerms, words)
 		fallbackQuery := strings.Join(orTerms, " OR ")
 
 		log.Printf("SmartSearch: Trying OR fallback with term: %s", fallbackQuery)
@@ -106,37 +101,6 @@ func (s *SmartSearchStrategy) Search(ctx context.Context, query SearchQuery) ([]
 	// No results found
 	log.Printf("SmartSearch: No results found for keyword '%s'", query.Keyword)
 	return []*entity.Memory{}, nil
-}
-
-// searchWithContext performs context-aware memory retrieval
-// Simulates the Hippocampus linking contextual information to memories
-func (s *SmartSearchStrategy) searchWithContext(
-	ctx context.Context,
-	userID int64,
-	keyword string,
-	contextData service.ContextualData,
-	opts repository.SearchOptions,
-) ([]*entity.Memory, error) {
-	// Get all memories matching the keyword
-	allMemories, err := s.repo.Search(ctx, userID, keyword, opts)
-	if err != nil {
-		return nil, err
-	}
-
-	// Filter by context
-	var contextualMemories []*entity.Memory
-	for _, memory := range allMemories {
-		if s.contextService.MatchesContext(memory.TimeOfDay, memory.DayOfWeek, contextData) {
-			contextualMemories = append(contextualMemories, memory)
-		}
-	}
-
-	// If contextual filtering yields no results, return all matches
-	if len(contextualMemories) == 0 {
-		return allMemories, nil
-	}
-
-	return contextualMemories, nil
 }
 
 // Name returns the strategy name

@@ -61,7 +61,9 @@ func (c *Connection) initSchema() error {
 		emotional_weight REAL DEFAULT 0.0,
 		time_of_day TEXT DEFAULT '',
 		day_of_week TEXT DEFAULT '',
-		chat_source TEXT DEFAULT 'Telegram'
+		chat_source TEXT DEFAULT 'Telegram',
+		parent_id INTEGER,
+		FOREIGN KEY(parent_id) REFERENCES memories(id) ON DELETE SET NULL
 	);`
 
 	if _, err := c.DB.Exec(createTableSQL); err != nil {
